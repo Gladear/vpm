@@ -3,7 +3,7 @@ module model
 const (
 	banned_names          = ['NotNite']
 	supported_vcs_systems = ['git', 'hg']
-	max_name_len = 10
+	max_name_len          = 10
 )
 
 pub struct Mod {

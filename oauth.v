@@ -31,12 +31,9 @@ fn (mut app App) oauth_cb() vweb.Result {
 	println('resp text=' + resp.text)
 	token := resp.text.find_between('access_token=', '&')
 	println('token =$token')
-	user_js := http.fetch('https://api.github.com/user?access_token=$token', {
-		method: .get
-		headers: {
+	user_js := http.fetch('https://api.github.com/user?access_token=$token', method: .get, headers: {
 			'User-Agent': 'V http client'
-		}
-	}) or {
+		}) or {
 		eprintln('unable to get user from token: $err')
 		return app.json('500')
 	}
@@ -62,26 +59,16 @@ fn (mut app App) oauth_cb() vweb.Result {
 		eprintln('unable to retrieve user id: $err')
 		return app.json('500')
 	}
-	app.set_cookie({
-		name: 'id'
-		value: user.id.str()
-	})
-	app.set_cookie({
-		name: 'q'
-		value: user.random_id
-	})
+	app.set_cookie(name: 'id', value: user.id.str())
+	app.set_cookie(name: 'q', value: user.random_id)
 	println('redirecting to /new')
 	return app.redirect('/new')
 }
 
 fn (mut app App) get_user() ?model.User {
-	raw_id := app.get_cookie('id') or {
-		return error('failed to id cookie')
-	}
+	raw_id := app.get_cookie('id') or { return error('failed to id cookie') }
 	id := raw_id.int()
-	q_cookie := app.get_cookie('q') or {
-		return error('failed to get q cookie.')
-	}
+	q_cookie := app.get_cookie('q') or { return error('failed to get q cookie.') }
 	random_id := q_cookie.trim_space()
 	println('auth sid="$raw_id" id=$id len ="$random_id.len" qq="$random_id" !!!')
 	if id == 0 {

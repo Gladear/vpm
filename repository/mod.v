@@ -3,7 +3,6 @@ module repository
 import model
 import pg
 
-
 pub struct ModRepo {
 	db pg.DB
 }
@@ -35,9 +34,7 @@ pub fn (repo &ModRepo) find_all() []model.Mod {
 
 pub fn (repo &ModRepo) find_by_name(name string) ?model.Mod {
 	rows := repo.db.exec_param('select name, url, nr_downloads from modules where name=$1',
-		name) or {
-		return error(err)
-	}
+		name) or { return error(err) }
 	if rows.len == 0 {
 		return error('Found no module with name "$name"')
 	}
