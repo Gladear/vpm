@@ -1,9 +1,10 @@
 module main
 
-import rand
 import net.http
 import json
 import os
+import model
+import vweb
 
 const (
 	client_id     = os.getenv('VPM_GITHUB_CLIENT_ID')
@@ -14,28 +15,18 @@ struct GitHubUser {
 	login string
 }
 
-const (
-	random = 'qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890'
-)
-
-fn random_string(len int) string {
-	mut buf := [`0`].repeat(len)
-	for i := 0; i < len; i++ {
-		idx := rand.intn(random.len)
-		buf[i] = random[idx]
-	}
-	return buf.str()
-}
-
-fn (mut app App) oauth_cb() {
-	code := app.vweb.req.url.all_after('code=')
-	println(code)
+fn (mut app App) oauth_cb() vweb.Result {
+	code := app.req.url.all_after('code=')
+	println('code=$code')
 	if code == '' {
-		return
+		// TODO return internal server error
+		return app.json('500')
 	}
 	d := 'client_id=$client_id&client_secret=$client_secret&code=$code'
 	resp := http.post('https://github.com/login/oauth/access_token', d) or {
-		return
+		eprintln('unable to get access token: $err')
+		// TODO return internal server error
+		return app.json('500')
 	}
 	println('resp text=' + resp.text)
 	token := resp.text.find_between('access_token=', '&')
@@ -46,56 +37,55 @@ fn (mut app App) oauth_cb() {
 			'User-Agent': 'V http client'
 		}
 	}) or {
-		panic(err)
+		eprintln('unable to get user from token: $err')
+		return app.json('500')
 	}
 	gh_user := json.decode(GitHubUser, user_js.text) or {
-		println('cant decode')
-		return
+		println('cant decode: $err')
+		return app.json('500')
 	}
 	login := gh_user.login.replace(' ', '')
 	if login.len < 2 {
-		app.vweb.redirect('/new')
-		return
+		return app.redirect('/new')
 	}
-	println('login =$login')
-	mut random_id := random_string(20)
-	app.db.exec_param2('insert into users (name, random_id) values ($1, $2)', login, random_id)
+	println('login=$login')
+	new_user := model.new_user(name: login) or {
+		eprintln('error creating user: $err')
+		return app.json('500')
+	}
+	app.users.create(new_user) or {
+		eprintln('error inserting user in database: $err')
+		return app.json('500')
+	}
 	// Fetch the new or already existing user and set cookies
-	user_id := app.db.q_int("select id from users where name=\'$login\' ") or {
-		panic(err)
+	user := app.users.find_by_name(login) or {
+		eprintln('unable to retrieve user id: $err')
+		return app.json('500')
 	}
-	random_id = app.db.q_string("select random_id from users where name=\'$login\' ") or {
-		panic(err)
-	}
-	app.vweb.set_cookie({
+	app.set_cookie({
 		name: 'id'
-		value: user_id.str()
+		value: user.id.str()
 	})
-	app.vweb.set_cookie({
+	app.set_cookie({
 		name: 'q'
-		value: random_id
+		value: user.random_id
 	})
 	println('redirecting to /new')
-	app.vweb.redirect('/new')
+	return app.redirect('/new')
 }
 
-fn (mut app App) auth() {
-	id_cookie := app.vweb.get_cookie('id') or {
-		println('failed to id cookie')
-		return
+fn (mut app App) get_user() ?model.User {
+	raw_id := app.get_cookie('id') or {
+		return error('failed to id cookie')
 	}
-	id := id_cookie.int()
-	q_cookie := app.vweb.get_cookie('q') or {
-		println('failed to get q cookie.')
-		return
+	id := raw_id.int()
+	q_cookie := app.get_cookie('q') or {
+		return error('failed to get q cookie.')
 	}
 	random_id := q_cookie.trim_space()
-	println('auth sid="$id_cookie" id=$id len ="$random_id.len" qq="$random_id" !!!')
-	app.cur_user = User{}
-	if id != 0 {
-		cur_user := app.retrieve_user(id, random_id) or {
-			return
-		}
-		app.cur_user = cur_user
+	println('auth sid="$raw_id" id=$id len ="$random_id.len" qq="$random_id" !!!')
+	if id == 0 {
+		return error('invalid auth sid')
 	}
+	return app.users.find_by_id(id, random_id)
 }
